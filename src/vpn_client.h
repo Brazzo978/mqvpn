@@ -17,9 +17,12 @@ typedef struct mqvpn_client_cfg_s {
     const char *auth_key;       /* PSK for server authentication (NULL = no auth) */
     const char *dns_servers[4]; /* DNS servers to configure (NULL = no DNS override) */
     int n_dns;                  /* number of DNS servers */
+    const char *client_routes[16]; /* IPv4 prefixes allowed as local TUN sources */
+    int n_client_routes;
     int reconnect;              /* 1=auto-reconnect on disconnect (default 1) */
     int reconnect_interval;     /* base reconnect interval in seconds (default 5) */
     int kill_switch;            /* 1=block traffic outside tunnel (default 0) */
+    int manage_routes;          /* 1=install split default routes (default), 0=caller managed */
 } mqvpn_client_cfg_t;
 
 #endif /* MQVPN_VPN_CLIENT_H */

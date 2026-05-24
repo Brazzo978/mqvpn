@@ -47,6 +47,7 @@ enum {
     SEC_AUTH,
     SEC_MULTIPATH,
     SEC_CONTROL,
+    SEC_ROUTES,
 };
 
 static int
@@ -58,6 +59,7 @@ parse_section(const char *name)
     if (strcasecmp(name, "Auth") == 0) return SEC_AUTH;
     if (strcasecmp(name, "Multipath") == 0) return SEC_MULTIPATH;
     if (strcasecmp(name, "Control") == 0) return SEC_CONTROL;
+    if (strcasecmp(name, "Routes") == 0) return SEC_ROUTES;
     return -1;
 }
 
@@ -261,6 +263,8 @@ handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *va
             parse_dns_list(cfg, val);
         } else if (strcasecmp(key, "KillSwitch") == 0) {
             cfg->kill_switch = parse_bool(val);
+        } else if (strcasecmp(key, "ManageRoutes") == 0) {
+            cfg->manage_routes = parse_bool(val);
         } else if (strcasecmp(key, "Reconnect") == 0) {
             cfg->reconnect = parse_bool(val);
         } else if (strcasecmp(key, "ReconnectInterval") == 0) {
@@ -329,6 +333,21 @@ handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *va
             snprintf(cfg->control_listen, sizeof(cfg->control_listen), "%s", val);
         } else {
             LOG_WRN("%s:%d: unknown key '%s' in [Control]", path, lineno, key);
+        }
+        break;
+
+    case SEC_ROUTES:
+        if (strcasecmp(key, "Route") == 0 || strcasecmp(key, "ClientRoute") == 0) {
+            if (cfg->n_client_routes < MQVPN_CONFIG_MAX_ROUTES) {
+                snprintf(cfg->client_routes[cfg->n_client_routes],
+                         sizeof(cfg->client_routes[0]), "%s", val);
+                cfg->n_client_routes++;
+            } else {
+                LOG_WRN("%s:%d: max %d client routes supported, ignoring '%s'", path,
+                        lineno, MQVPN_CONFIG_MAX_ROUTES, val);
+            }
+        } else {
+            LOG_WRN("%s:%d: unknown key '%s' in [Routes]", path, lineno, key);
         }
         break;
 
@@ -414,6 +433,9 @@ mqvpn_config_load_json_filecfg(mqvpn_file_config_t *cfg, const char *json_text)
     v = json_find_key(json_text, "kill_switch");
     if (v && json_read_bool(v, &iv) == 0) cfg->kill_switch = iv;
 
+    v = json_find_key(json_text, "manage_routes");
+    if (v && json_read_bool(v, &iv) == 0) cfg->manage_routes = iv;
+
     v = json_find_key(json_text, "control_listen");
     if (v && json_read_string(v, s280, sizeof(s280)) == 0)
         mqvpn_copy_str(cfg->control_listen, sizeof(cfg->control_listen), s280);
@@ -439,6 +461,18 @@ mqvpn_config_load_json_filecfg(mqvpn_file_config_t *cfg, const char *json_text)
             mqvpn_copy_str(cfg->paths[cfg->n_paths], sizeof(cfg->paths[cfg->n_paths]),
                            path_buf[i]);
             cfg->n_paths++;
+        }
+    }
+
+    char route_buf[MQVPN_CONFIG_MAX_ROUTES][64];
+    int n_routes = 0;
+    v = json_find_key(json_text, "client_routes");
+    if (v && json_read_string_array(v, route_buf, MQVPN_CONFIG_MAX_ROUTES, &n_routes) == 0) {
+        cfg->n_client_routes = 0;
+        for (int i = 0; i < n_routes; i++) {
+            mqvpn_copy_str(cfg->client_routes[cfg->n_client_routes],
+                           sizeof(cfg->client_routes[cfg->n_client_routes]), route_buf[i]);
+            cfg->n_client_routes++;
         }
     }
 
@@ -526,6 +560,7 @@ mqvpn_config_defaults(mqvpn_file_config_t *cfg)
     cfg->max_clients = 64;
     cfg->reconnect = 1;
     cfg->reconnect_interval = 5;
+    cfg->manage_routes = 1;
 }
 
 int

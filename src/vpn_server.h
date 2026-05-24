@@ -14,6 +14,8 @@ typedef struct mqvpn_server_cfg_s {
     int listen_port;         /* bind port (e.g. 443) */
     const char *subnet;      /* client IP pool CIDR (e.g. "10.0.0.0/24") */
     const char *subnet6;     /* IPv6 client pool CIDR (NULL = disabled) */
+    const char *client_routes[16]; /* IPv4 routes behind the connected client */
+    int n_client_routes;
     const char *tun_name;    /* TUN device name */
     const char *cert_file;   /* TLS certificate path */
     const char *key_file;    /* TLS private key path */

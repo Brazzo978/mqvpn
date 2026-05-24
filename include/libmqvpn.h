@@ -46,6 +46,7 @@ extern "C" {
 
 #define MQVPN_MAX_USERS 64
 #define MQVPN_MAX_PATHS 4
+#define MQVPN_MAX_CLIENT_ROUTES 16
 
 /* ─── Opaque handles ─── */
 
@@ -414,6 +415,7 @@ MQVPN_API int mqvpn_config_set_clock(mqvpn_config_t *cfg, mqvpn_clock_fn clock_f
 MQVPN_API int mqvpn_config_set_listen(mqvpn_config_t *cfg, const char *addr, int port);
 MQVPN_API int mqvpn_config_set_subnet(mqvpn_config_t *cfg, const char *cidr);
 MQVPN_API int mqvpn_config_set_subnet6(mqvpn_config_t *cfg, const char *cidr6);
+MQVPN_API int mqvpn_config_add_client_route(mqvpn_config_t *cfg, const char *cidr);
 MQVPN_API int mqvpn_config_set_tls_cert(mqvpn_config_t *cfg, const char *cert,
                                         const char *key);
 MQVPN_API int mqvpn_config_set_max_clients(mqvpn_config_t *cfg, int max);

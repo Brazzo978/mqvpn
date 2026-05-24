@@ -59,6 +59,7 @@ typedef struct {
     char server_ip_str[INET6_ADDRSTRLEN];
     int server_port;
     int has_v6;
+    int manage_routes;
 
     /* DNS */
     mqvpn_dns_t dns;

@@ -40,6 +40,8 @@ struct mqvpn_config_s {
     int listen_port;
     char subnet[64];
     char subnet6[64];
+    char client_routes[MQVPN_MAX_CLIENT_ROUTES][32];
+    int n_client_routes;
     char tls_cert[256];
     char tls_key[256];
     int max_clients;

@@ -2,6 +2,13 @@
 
 Multipath QUIC VPN using [MASQUE CONNECT-IP (RFC 9484)](https://www.rfc-editor.org/rfc/rfc9484) over [HTTP Datagrams (RFC 9297)](https://www.rfc-editor.org/rfc/rfc9297) / [QUIC DATAGRAMs (RFC 9221)](https://www.rfc-editor.org/rfc/rfc9221), built on a [fork of XQUIC](https://github.com/mp0rta/xquic/tree/mqvpn-main) with [Multipath QUIC](https://datatracker.ietf.org/doc/draft-ietf-quic-multipath/).
 
+## OpenMPTCProuter 3K fork
+
+This fork is used by the Brazzo978 OpenMPTCProuter 3K custom builds. It tracks upstream mqvpn and carries the integration changes needed by OMR:
+
+- optional client-side route management, so OpenMPTCProuter can own policy routing;
+- client LAN route support, so prefixes behind the OMR client can be carried through the MQVPN tunnel.
+
 ## Features
 
 - **Multipath** — Bind multiple interfaces (WiFi + LTE, dual ISP). Seamless failover and bandwidth aggregation via WLB scheduler.

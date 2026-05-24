@@ -123,9 +123,13 @@ cb_tunnel_config_ready(const mqvpn_tunnel_info_t *info, void *user_ctx)
             info->mtu);
 
     /* Set up routes, killswitch, DNS */
-    if (setup_routes(p) < 0) {
-        LOG_ERR("route setup failed, aborting tunnel");
-        goto fail;
+    if (p->manage_routes) {
+        if (setup_routes(p) < 0) {
+            LOG_ERR("route setup failed, aborting tunnel");
+            goto fail;
+        }
+    } else {
+        LOG_INF("route management disabled by configuration");
     }
     if (setup_killswitch(p) < 0) {
         LOG_ERR("killswitch setup failed, aborting tunnel");
@@ -969,6 +973,7 @@ linux_platform_run_client(const mqvpn_client_cfg_t *cfg)
     ctx.nl_fd = -1;
     ctx.server_port = cfg->server_port;
     ctx.killswitch_enabled = cfg->kill_switch;
+    ctx.manage_routes = cfg->manage_routes;
 
     /* Pre-set TUN name (save to tun_name_cfg too — survives TUN destroy/recreate) */
     if (cfg->tun_name) {
@@ -1005,6 +1010,9 @@ linux_platform_run_client(const mqvpn_client_cfg_t *cfg)
     mqvpn_config_set_reconnect(lib_cfg, cfg->reconnect,
                                cfg->reconnect_interval > 0 ? cfg->reconnect_interval : 5);
     mqvpn_config_set_killswitch_hint(lib_cfg, cfg->kill_switch);
+    for (int i = 0; i < cfg->n_client_routes; i++) {
+        if (cfg->client_routes[i]) mqvpn_config_add_client_route(lib_cfg, cfg->client_routes[i]);
+    }
 
     mqvpn_config_set_log_level(lib_cfg, (mqvpn_log_level_t)cfg->log_level);
 
@@ -1445,6 +1453,9 @@ linux_platform_run_server(const mqvpn_server_cfg_t *cfg)
     mqvpn_config_set_listen(lib_cfg, cfg->listen_addr, cfg->listen_port);
     mqvpn_config_set_subnet(lib_cfg, cfg->subnet);
     if (cfg->subnet6) mqvpn_config_set_subnet6(lib_cfg, cfg->subnet6);
+    for (int i = 0; i < cfg->n_client_routes; i++) {
+        if (cfg->client_routes[i]) mqvpn_config_add_client_route(lib_cfg, cfg->client_routes[i]);
+    }
     if (cfg->cert_file && cfg->key_file)
         mqvpn_config_set_tls_cert(lib_cfg, cfg->cert_file, cfg->key_file);
     if (cfg->auth_key) mqvpn_config_set_auth_key(lib_cfg, cfg->auth_key);

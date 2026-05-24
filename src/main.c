@@ -52,6 +52,7 @@ usage(const char *prog)
         "  --dns ADDR                DNS server to use (repeatable, client mode, max 4)\n"
         "  --no-reconnect            Disable automatic reconnection (client mode)\n"
         "  --kill-switch             Block traffic outside the VPN tunnel (client mode)\n"
+        "  --no-routes               Do not install split-default routes (client mode)\n"
         "  --control-port PORT       TCP port for JSON control API (server mode)\n"
         "  --control-addr ADDR       Bind address for control API (default 127.0.0.1)\n"
         "                            (also configurable via [Control] Listen in INI / "
@@ -139,6 +140,7 @@ main(int argc, char *argv[])
         {"log-level", required_argument, NULL, 'L'},
         {"no-reconnect", no_argument, NULL, 'R'},
         {"kill-switch", no_argument, NULL, 'K'},
+        {"no-routes", no_argument, NULL, 'N'},
         {"control-port", required_argument, NULL, 'X'},
         {"control-addr", required_argument, NULL, 'x'},
         {"status", no_argument, NULL, 'T'},
@@ -171,6 +173,7 @@ main(int argc, char *argv[])
     int n_dns = 0;
     int no_reconnect = 0;
     int kill_switch = -1; /* -1 = not set by CLI */
+    int manage_routes = -1; /* -1 = config/default, 0 = disabled by CLI */
     int control_port = 0;
     int control_port_set = 0; /* 1 iff --control-port was passed explicitly */
     const char *control_addr = NULL;
@@ -238,6 +241,7 @@ main(int argc, char *argv[])
         case 'M': max_clients = atoi(optarg); break;
         case 'R': no_reconnect = 1; break;
         case 'K': kill_switch = 1; break;
+        case 'N': manage_routes = 0; break;
         case 'X':
             control_port = atoi(optarg);
             control_port_set = 1;
@@ -433,15 +437,20 @@ main(int argc, char *argv[])
             .scheduler = scheduler,
             .auth_key = eff_auth_key,
             .n_dns = n_dns,
+            .n_client_routes = file_cfg.n_client_routes,
             .reconnect = eff_reconnect,
             .reconnect_interval = file_cfg.reconnect_interval,
             .kill_switch = kill_switch >= 0 ? kill_switch : file_cfg.kill_switch,
+            .manage_routes = manage_routes >= 0 ? manage_routes : file_cfg.manage_routes,
         };
         for (int i = 0; i < n_paths; i++) {
             cfg.path_ifaces[i] = path_ifaces[i];
         }
         for (int i = 0; i < n_dns; i++) {
             cfg.dns_servers[i] = dns_servers[i];
+        }
+        for (int i = 0; i < file_cfg.n_client_routes; i++) {
+            cfg.client_routes[i] = file_cfg.client_routes[i];
         }
 #ifdef _WIN32
         return win_platform_run_client(&cfg);
@@ -468,6 +477,7 @@ main(int argc, char *argv[])
             .listen_port = bind_port,
             .subnet = eff_subnet,
             .subnet6 = eff_subnet6,
+            .n_client_routes = file_cfg.n_client_routes,
             .tun_name = eff_tun_name,
             .cert_file = eff_cert,
             .key_file = eff_key,
@@ -479,6 +489,9 @@ main(int argc, char *argv[])
             .control_addr = eff_control_addr,
             .control_port = eff_control_port,
         };
+        for (int i = 0; i < file_cfg.n_client_routes; i++) {
+            cfg.client_routes[i] = file_cfg.client_routes[i];
+        }
         for (int i = 0; i < eff_n_users; i++) {
             cfg.user_names[i] = eff_user_names[i];
             cfg.user_keys[i] = eff_user_keys[i];

@@ -156,6 +156,12 @@ struct mqvpn_client_s {
     int tun_active;
     int backpressure;
     int last_notified_mtu;
+    struct {
+        uint32_t net;
+        uint32_t mask;
+        uint8_t prefix;
+    } client_routes[MQVPN_MAX_CLIENT_ROUTES];
+    int n_client_routes;
 
     /* Stats */
     uint64_t bytes_tx;
@@ -207,6 +213,41 @@ struct mqvpn_client_s {
     int owner_thread_set;
 #endif
 };
+
+static int
+parse_ipv4_cidr(const char *cidr, uint32_t *net, uint32_t *mask, uint8_t *prefix)
+{
+    if (!cidr || !net || !mask || !prefix) return -1;
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%s", cidr);
+    char *slash = strchr(buf, '/');
+    if (!slash) return -1;
+    *slash = '\0';
+
+    char *end = NULL;
+    long plen = strtol(slash + 1, &end, 10);
+    if (end == slash + 1 || *end != '\0' || plen < 0 || plen > 32) return -1;
+
+    struct in_addr addr;
+    if (inet_pton(AF_INET, buf, &addr) != 1) return -1;
+
+    uint32_t m = plen == 0 ? 0U : (0xFFFFFFFFU << (32 - (uint8_t)plen));
+    *net = ntohl(addr.s_addr) & m;
+    *mask = m;
+    *prefix = (uint8_t)plen;
+    return 0;
+}
+
+static int
+ipv4_client_route_match(const mqvpn_client_t *c, const struct in_addr *src)
+{
+    uint32_t addr = ntohl(src->s_addr);
+    for (int i = 0; i < c->n_client_routes; i++) {
+        if ((addr & c->client_routes[i].mask) == c->client_routes[i].net) return 1;
+    }
+    return 0;
+}
 
 /* ─── State transition table (M0-5) ─── */
 
@@ -614,6 +655,19 @@ client_init_handle(mqvpn_client_t *c, const mqvpn_config_t *cfg,
     memcpy(&c->cbs, cbs, sizeof(*cbs));
     c->user_ctx = user_ctx; // lgtm[cpp/stack-address-escape]
     c->log_level = cfg->log_level;
+    for (int i = 0; i < cfg->n_client_routes && i < MQVPN_MAX_CLIENT_ROUTES; i++) {
+        uint32_t net, mask;
+        uint8_t prefix;
+        if (parse_ipv4_cidr(cfg->client_routes[i], &net, &mask, &prefix) < 0) {
+            LOG_W(c, "invalid client route ignored: %s", cfg->client_routes[i]);
+            continue;
+        }
+        c->client_routes[c->n_client_routes].net = net;
+        c->client_routes[c->n_client_routes].mask = mask;
+        c->client_routes[c->n_client_routes].prefix = prefix;
+        c->n_client_routes++;
+        LOG_I(c, "client route allowed as local source: %s", cfg->client_routes[i]);
+    }
     c->state = MQVPN_STATE_IDLE;
     c->next_path_handle = 1;
     c->ptb_tokens = PTB_RATE_LIMIT;
@@ -2136,7 +2190,10 @@ mqvpn_client_on_tun_packet(mqvpn_client_t *c, const uint8_t *pkt, size_t len)
     uint8_t ip_ver = pkt[0] >> 4;
     if (ip_ver == 4) {
         if (len < IPV4_MIN_HDR) return MQVPN_ERR_INVALID_ARG;
-        if (conn->addr_assigned && memcmp(pkt + 12, conn->assigned_ip, 4) != 0) {
+        struct in_addr src_ip;
+        memcpy(&src_ip.s_addr, pkt + 12, 4);
+        if (conn->addr_assigned && memcmp(pkt + 12, conn->assigned_ip, 4) != 0 &&
+            !ipv4_client_route_match(c, &src_ip)) {
             LOG_D(c, "tun drop: IPv4 src mismatch (len=%zu)", len);
             return MQVPN_OK; /* silently drop: src mismatch */
         }

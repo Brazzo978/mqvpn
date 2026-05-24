@@ -268,6 +268,17 @@ mqvpn_config_load_json(mqvpn_config_t *cfg, const char *json_text)
         mqvpn_copy_str(cfg->subnet6, sizeof(cfg->subnet6), tmp);
     }
 
+    char route_buf[MQVPN_MAX_CLIENT_ROUTES][32];
+    int n_routes = 0;
+    v = json_find_key(json_text, "client_routes");
+    if (v && json_read_string_array(v, route_buf, MQVPN_MAX_CLIENT_ROUTES, &n_routes) ==
+                 MQVPN_OK) {
+        cfg->n_client_routes = 0;
+        for (int i = 0; i < n_routes; i++) {
+            mqvpn_config_add_client_route(cfg, route_buf[i]);
+        }
+    }
+
     v = json_find_key(json_text, "tls_cert");
     if (v && json_read_string(v, tmp, sizeof(tmp)) == MQVPN_OK) {
         mqvpn_copy_str(cfg->tls_cert, sizeof(cfg->tls_cert), tmp);
@@ -404,6 +415,18 @@ mqvpn_config_set_subnet6(mqvpn_config_t *cfg, const char *cidr6)
 {
     if (!cfg || !cidr6) return MQVPN_ERR_INVALID_ARG;
     snprintf(cfg->subnet6, sizeof(cfg->subnet6), "%s", cidr6);
+    return MQVPN_OK;
+}
+
+int
+mqvpn_config_add_client_route(mqvpn_config_t *cfg, const char *cidr)
+{
+    if (!cfg || !cidr || cidr[0] == '\0') return MQVPN_ERR_INVALID_ARG;
+    if (cfg->n_client_routes >= MQVPN_MAX_CLIENT_ROUTES) return MQVPN_ERR_MAX_CLIENTS;
+
+    snprintf(cfg->client_routes[cfg->n_client_routes],
+             sizeof(cfg->client_routes[cfg->n_client_routes]), "%s", cidr);
+    cfg->n_client_routes++;
     return MQVPN_OK;
 }
 

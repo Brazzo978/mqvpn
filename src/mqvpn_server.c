@@ -106,6 +106,12 @@ struct mqvpn_server_s {
 
     /* Address pool */
     mqvpn_addr_pool_t pool;
+    struct {
+        uint32_t net;
+        uint32_t mask;
+        uint8_t prefix;
+    } client_routes[MQVPN_MAX_CLIENT_ROUTES];
+    int n_client_routes;
 
     /* Session table: indexed by IP offset (1-254) within subnet */
     svr_conn_t *sessions[MQVPN_ADDR_POOL_MAX + 1];
@@ -178,6 +184,51 @@ now_us(void)
     gettimeofday(&tv, NULL);
     return (uint64_t)tv.tv_sec * 1000000 + (uint64_t)tv.tv_usec;
 #endif
+}
+
+static int
+parse_ipv4_cidr(const char *cidr, uint32_t *net, uint32_t *mask, uint8_t *prefix)
+{
+    if (!cidr || !net || !mask || !prefix) return -1;
+
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%s", cidr);
+    char *slash = strchr(buf, '/');
+    if (!slash) return -1;
+    *slash = '\0';
+
+    char *end = NULL;
+    long plen = strtol(slash + 1, &end, 10);
+    if (end == slash + 1 || *end != '\0' || plen < 0 || plen > 32) return -1;
+
+    struct in_addr addr;
+    if (inet_pton(AF_INET, buf, &addr) != 1) return -1;
+
+    uint32_t m = plen == 0 ? 0U : (0xFFFFFFFFU << (32 - (uint8_t)plen));
+    *net = ntohl(addr.s_addr) & m;
+    *mask = m;
+    *prefix = (uint8_t)plen;
+    return 0;
+}
+
+static int
+ipv4_route_match(const mqvpn_server_t *s, const struct in_addr *dst)
+{
+    uint32_t addr = ntohl(dst->s_addr);
+    for (int i = 0; i < s->n_client_routes; i++) {
+        if ((addr & s->client_routes[i].mask) == s->client_routes[i].net) return 1;
+    }
+    return 0;
+}
+
+static svr_conn_t *
+first_established_session(mqvpn_server_t *s)
+{
+    for (uint32_t i = 1; i <= MQVPN_ADDR_POOL_MAX; i++) {
+        svr_conn_t *conn = s->sessions[i];
+        if (conn && conn->tunnel_established) return conn;
+    }
+    return NULL;
 }
 
 static int64_t
@@ -999,7 +1050,10 @@ cb_dgram_read(xqc_h3_conn_t *h3_conn, const void *data, size_t data_len, void *u
 
     if (ip_ver == 4) {
         if (payload_len < 20) return;
-        if (memcmp(payload + 12, &conn->assigned_ip.s_addr, 4) != 0) {
+        struct in_addr src_ip;
+        memcpy(&src_ip.s_addr, payload + 12, 4);
+        if (memcmp(payload + 12, &conn->assigned_ip.s_addr, 4) != 0 &&
+            !ipv4_route_match(s, &src_ip)) {
             LOG_W(s, "dropping packet: src IP mismatch");
             return;
         }
@@ -1139,6 +1193,19 @@ mqvpn_server_new(const mqvpn_config_t *cfg, const mqvpn_server_callbacks_t *cbs,
             LOG_E(s, "failed to init IPv6 pool: %s", cfg->subnet6);
             goto cleanup;
         }
+    }
+    for (int i = 0; i < cfg->n_client_routes && i < MQVPN_MAX_CLIENT_ROUTES; i++) {
+        uint32_t net, mask;
+        uint8_t prefix;
+        if (parse_ipv4_cidr(cfg->client_routes[i], &net, &mask, &prefix) < 0) {
+            LOG_E(s, "invalid client route: %s", cfg->client_routes[i]);
+            goto cleanup;
+        }
+        s->client_routes[s->n_client_routes].net = net;
+        s->client_routes[s->n_client_routes].mask = mask;
+        s->client_routes[s->n_client_routes].prefix = prefix;
+        s->n_client_routes++;
+        LOG_I(s, "client route enabled: %s", cfg->client_routes[i]);
     }
 
     /* ── xquic engine setup ── */
@@ -1379,9 +1446,16 @@ mqvpn_server_on_tun_packet(mqvpn_server_t *s, const uint8_t *pkt, size_t len)
     if (ip_ver == 4 && len >= 20) {
         struct in_addr dst_ip;
         memcpy(&dst_ip.s_addr, pkt + 16, 4);
-        uint32_t offset = ntohl(dst_ip.s_addr) - ntohl(s->pool.base.s_addr);
-        if (offset == 0 || offset > MQVPN_ADDR_POOL_MAX) return MQVPN_OK;
-        target = s->sessions[offset];
+        uint32_t dst_h = ntohl(dst_ip.s_addr);
+        uint32_t base_h = ntohl(s->pool.base.s_addr);
+        uint32_t offset = dst_h >= base_h ? dst_h - base_h : 0;
+        if (offset > 0 && offset <= MQVPN_ADDR_POOL_MAX) {
+            target = s->sessions[offset];
+        } else if (ipv4_route_match(s, &dst_ip)) {
+            target = first_established_session(s);
+        } else {
+            return MQVPN_OK;
+        }
     } else if (ip_ver == 6 && len >= 40 && s->pool.has_v6) {
         struct in6_addr dst_ip6;
         memcpy(&dst_ip6, pkt + 24, 16);

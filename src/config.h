@@ -14,6 +14,7 @@
 #define MQVPN_CONFIG_MAX_PATHS 4
 #define MQVPN_CONFIG_MAX_DNS   4
 #define MQVPN_CONFIG_MAX_USERS 64
+#define MQVPN_CONFIG_MAX_ROUTES 16
 
 typedef struct mqvpn_file_config_s {
     /* [Interface] — common */
@@ -24,6 +25,8 @@ typedef struct mqvpn_file_config_s {
     char listen[280]; /* "bind:port" */
     char subnet[32];
     char subnet6[64]; /* IPv6 tunnel subnet CIDR (e.g. "2001:db8:1::/112") */
+    char client_routes[MQVPN_CONFIG_MAX_ROUTES][32];
+    int n_client_routes;
 
     /* [Interface] — client */
     char dns_servers[MQVPN_CONFIG_MAX_DNS][64];
@@ -59,6 +62,7 @@ typedef struct mqvpn_file_config_s {
     int reconnect;          /* 1=auto-reconnect (default), 0=exit on disconnect */
     int reconnect_interval; /* base interval in seconds (default 5) */
     int kill_switch;        /* 1=block traffic outside tunnel, 0=off (default) */
+    int manage_routes;      /* 1=install split default routes, 0=leave routing to caller */
 
     /* Inferred mode: 1=server, 0=client */
     int is_server;
