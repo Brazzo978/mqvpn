@@ -419,17 +419,17 @@ MQVPN_API int mqvpn_config_set_reconnect(mqvpn_config_t *cfg, int enable,
 MQVPN_API int mqvpn_config_set_killswitch_hint(mqvpn_config_t *cfg, int enable);
 
 /* MTU/packet sizing.
- * TUN MTU: 0 = auto, otherwise pinned. The default outer packet size is 1320:
- * enough to carry a 1280-byte inner tunnel after QUIC/MASQUE overhead while
- * staying conservative on mobile links.
+ * TUN MTU: 0 = auto, otherwise pinned. The outer packet size is the QUIC/UDP
+ * payload size before IP+UDP headers; on a 1500-byte IPv4 path, 1472 is the
+ * highest non-fragmented value.
  */
 #define MQVPN_TUN_MTU_AUTO 0
 #define MQVPN_TUN_MTU_MIN 1280
 #define MQVPN_TUN_MTU_MAX 1402
-#define MQVPN_OUTER_PACKET_SIZE_DEFAULT 1320
+#define MQVPN_OUTER_PACKET_SIZE_DEFAULT 1400
 #define MQVPN_OUTER_PACKET_SIZE_MIN 1298
-#define MQVPN_OUTER_PACKET_SIZE_MAX 1420
-#define MQVPN_PMTUD_PROBE_SIZE_DEFAULT 1380
+#define MQVPN_OUTER_PACKET_SIZE_MAX 1472
+#define MQVPN_PMTUD_PROBE_SIZE_DEFAULT 1420
 
 MQVPN_API int mqvpn_config_set_mtu(mqvpn_config_t *cfg, int mtu);
 MQVPN_API int mqvpn_config_set_outer_packet_size(mqvpn_config_t *cfg, int size);

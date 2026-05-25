@@ -324,14 +324,14 @@ handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *va
         } else if (strcasecmp(key, "OuterPacketSize") == 0 ||
                    strcasecmp(key, "PacketSize") == 0) {
             int v = atoi(val);
-            if (v == 0 || (v >= 1298 && v <= 1420)) cfg->outer_packet_size = v;
+            if (v == 0 || (v >= 1298 && v <= 1472)) cfg->outer_packet_size = v;
         } else if (strcasecmp(key, "PMTUD") == 0 ||
                    strcasecmp(key, "Pmtud") == 0) {
             cfg->pmtud_enable = parse_bool(val);
         } else if (strcasecmp(key, "PMTUDProbeSize") == 0 ||
                    strcasecmp(key, "PmtudProbeSize") == 0) {
             int v = atoi(val);
-            if (v == 0 || (v >= 1298 && v <= 1420)) cfg->pmtud_probe_size = v;
+            if (v == 0 || (v >= 1298 && v <= 1472)) cfg->pmtud_probe_size = v;
         } else if (strcasecmp(key, "Path") == 0) {
             if (cfg->n_paths < MQVPN_CONFIG_MAX_PATHS) {
                 snprintf(cfg->paths[cfg->n_paths], sizeof(cfg->paths[0]), "%s", val);
@@ -450,14 +450,14 @@ mqvpn_config_load_json_filecfg(mqvpn_file_config_t *cfg, const char *json_text)
         cfg->mtu = iv;
 
     v = json_find_key(json_text, "outer_packet_size");
-    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1298 && iv <= 1420)))
+    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1298 && iv <= 1472)))
         cfg->outer_packet_size = iv;
 
     v = json_find_key(json_text, "pmtud");
     if (v && json_read_bool(v, &iv) == 0) cfg->pmtud_enable = iv;
 
     v = json_find_key(json_text, "pmtud_probe_size");
-    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1298 && iv <= 1420)))
+    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1298 && iv <= 1472)))
         cfg->pmtud_probe_size = iv;
 
     v = json_find_key(json_text, "reconnect");
@@ -594,8 +594,8 @@ mqvpn_config_defaults(mqvpn_file_config_t *cfg)
     snprintf(cfg->key_file, sizeof(cfg->key_file), "server.key");
     snprintf(cfg->scheduler, sizeof(cfg->scheduler), "wlb");
     snprintf(cfg->cc, sizeof(cfg->cc), "bbr2");
-    cfg->outer_packet_size = 1320;
-    cfg->pmtud_probe_size = 1380;
+    cfg->outer_packet_size = 1400;
+    cfg->pmtud_probe_size = 1420;
     cfg->max_clients = 64;
     cfg->reconnect = 1;
     cfg->reconnect_interval = 5;

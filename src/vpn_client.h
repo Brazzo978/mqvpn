@@ -16,9 +16,9 @@ typedef struct mqvpn_client_cfg_s {
     int scheduler;              /* 0=minrtt, 1=wlb (default) */
     int cc;                     /* mqvpn_cc_t */
     int mtu;                    /* 0=auto; otherwise pinned TUN MTU */
-    int outer_packet_size;      /* QUIC packet size, 0/default=1320 */
+    int outer_packet_size;      /* QUIC packet size, 0/default=1400 */
     int pmtud_enable;           /* 1=enable negotiated xquic PMTUD */
-    int pmtud_probe_size;       /* PMTUD probe cap, 0/default=1380 */
+    int pmtud_probe_size;       /* PMTUD probe cap, 0/default=1420 */
     const char *auth_key;       /* PSK for server authentication (NULL = no auth) */
     const char *dns_servers[4]; /* DNS servers to configure (NULL = no DNS override) */
     int n_dns;                  /* number of DNS servers */
