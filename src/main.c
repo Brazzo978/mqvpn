@@ -60,8 +60,14 @@ usage(const char *prog)
         "  --status                  Query server status via control API and exit\n"
         "                            (uses --control-port, or [Control] Listen from "
         "--config)\n"
-        "  --scheduler minrtt|wlb|backup_fec\n"
+        "  --scheduler minrtt|wlb|backup|backup_fec|rap\n"
         "                            Multipath scheduler (default wlb)\n"
+        "  --cc bbr2|bbr|cubic|new_reno|copa|unlimited\n"
+        "                            Congestion control (default bbr2)\n"
+        "  --mtu N                   TUN MTU override, 0=auto (default 0)\n"
+        "  --outer-packet-size N     QUIC packet size 1298-1420 (default 1320)\n"
+        "  --pmtud                   Enable negotiated xquic PMTUD (off by default)\n"
+        "  --pmtud-probe-size N      PMTUD probe cap 1298-1420 (default 1380)\n"
         "  --max-clients N           Max concurrent clients (server mode, default 64)\n"
         "  --log-level debug|info|warn|error  (default info)\n"
         "  --version                 Show version and exit\n"
@@ -106,6 +112,79 @@ parse_host_port(const char *str, char *host, size_t host_len, int *port)
     return 0;
 }
 
+static int
+parse_range_int(const char *str, int min, int max, const char *name, int allow_zero,
+                int *out)
+{
+    if (!str || *str == '\0') {
+        fprintf(stderr, "error: %s must be %s%d and %d\n", name,
+                allow_zero ? "0 or between " : "between ", min, max);
+        return -1;
+    }
+    char *end = NULL;
+    long v = strtol(str, &end, 10);
+    if (!end || *end != '\0' ||
+        ((!allow_zero || v != 0) && (v < min || v > max))) {
+        fprintf(stderr, "error: %s must be %s%d and %d\n", name,
+                allow_zero ? "0 or between " : "between ", min, max);
+        return -1;
+    }
+    *out = (int)v;
+    return 0;
+}
+
+static int
+parse_scheduler_name(const char *name, mqvpn_scheduler_t *out)
+{
+    if (strcmp(name, "wlb") == 0) {
+        *out = MQVPN_SCHED_WLB;
+    } else if (strcmp(name, "backup") == 0) {
+        *out = MQVPN_SCHED_BACKUP;
+    } else if (strcmp(name, "backup_fec") == 0) {
+#if defined(XQC_ENABLE_FEC) && defined(XQC_ENABLE_XOR)
+        *out = MQVPN_SCHED_BACKUP_FEC;
+#else
+        fprintf(stderr, "error: --scheduler 'backup_fec' requires rebuild with "
+                        "-DXQC_ENABLE_FEC=ON -DXQC_ENABLE_XOR=ON in xquic\n");
+        return -1;
+#endif
+    } else if (strcmp(name, "rap") == 0) {
+        *out = MQVPN_SCHED_RAP;
+    } else if (strcmp(name, "minrtt") == 0) {
+        *out = MQVPN_SCHED_MINRTT;
+    } else {
+        fprintf(stderr,
+                "error: --scheduler must be 'minrtt', 'wlb', 'backup', "
+                "'backup_fec', or 'rap'\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int
+parse_cc_name(const char *name, mqvpn_cc_t *out)
+{
+    if (strcmp(name, "bbr2") == 0) {
+        *out = MQVPN_CC_BBR2;
+    } else if (strcmp(name, "bbr") == 0) {
+        *out = MQVPN_CC_BBR;
+    } else if (strcmp(name, "cubic") == 0) {
+        *out = MQVPN_CC_CUBIC;
+    } else if (strcmp(name, "new_reno") == 0 || strcmp(name, "reno") == 0) {
+        *out = MQVPN_CC_NEW_RENO;
+    } else if (strcmp(name, "copa") == 0) {
+        *out = MQVPN_CC_COPA;
+    } else if (strcmp(name, "unlimited") == 0) {
+        *out = MQVPN_CC_UNLIMITED;
+    } else {
+        fprintf(stderr,
+                "error: --cc must be 'bbr2', 'bbr', 'cubic', 'new_reno', "
+                "'copa', or 'unlimited'\n");
+        return -1;
+    }
+    return 0;
+}
+
 /* mqvpn_copy_str is provided by json_mini.h as mqvpn_copy_str */
 
 int
@@ -136,6 +215,11 @@ main(int argc, char *argv[])
         {"path", required_argument, NULL, 'p'},
         {"dns", required_argument, NULL, 'd'},
         {"scheduler", required_argument, NULL, 'S'},
+        {"cc", required_argument, NULL, 'Q'},
+        {"mtu", required_argument, NULL, 0x100},
+        {"outer-packet-size", required_argument, NULL, 0x101},
+        {"pmtud", no_argument, NULL, 0x102},
+        {"pmtud-probe-size", required_argument, NULL, 0x103},
         {"max-clients", required_argument, NULL, 'M'},
         {"log-level", required_argument, NULL, 'L'},
         {"no-reconnect", no_argument, NULL, 'R'},
@@ -166,6 +250,11 @@ main(int argc, char *argv[])
     int genkey = 0;
     const char *log_level_str = NULL;
     const char *scheduler_str = NULL;
+    const char *cc_str = NULL;
+    int mtu = -1;
+    int outer_packet_size = -1;
+    int pmtud_enable = -1;
+    int pmtud_probe_size = -1;
     int max_clients = -1; /* -1 means "not set by CLI" */
     const char *path_ifaces[MQVPN_MAX_PATH_IFACES];
     int n_paths = 0;
@@ -180,7 +269,7 @@ main(int argc, char *argv[])
     int status_mode = 0;
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "C:m:s:l:n:6:t:c:k:ia:u:Gp:d:S:M:L:X:x:Vh",
+    while ((opt = getopt_long(argc, argv, "C:m:s:l:n:6:t:c:k:ia:u:Gp:d:S:Q:M:L:X:x:Vh",
                               long_opts, NULL)) != -1) {
         switch (opt) {
         case 'C': config_path = optarg; break;
@@ -238,6 +327,25 @@ main(int argc, char *argv[])
             }
             break;
         case 'S': scheduler_str = optarg; break;
+        case 'Q': cc_str = optarg; break;
+        case 0x100:
+            if (parse_range_int(optarg, MQVPN_TUN_MTU_MIN, MQVPN_TUN_MTU_MAX,
+                                "--mtu", 1, &mtu) < 0)
+                return 1;
+            break;
+        case 0x101:
+            if (parse_range_int(optarg, MQVPN_OUTER_PACKET_SIZE_MIN,
+                                MQVPN_OUTER_PACKET_SIZE_MAX,
+                                "--outer-packet-size", 1, &outer_packet_size) < 0)
+                return 1;
+            break;
+        case 0x102: pmtud_enable = 1; break;
+        case 0x103:
+            if (parse_range_int(optarg, MQVPN_OUTER_PACKET_SIZE_MIN,
+                                MQVPN_OUTER_PACKET_SIZE_MAX,
+                                "--pmtud-probe-size", 1, &pmtud_probe_size) < 0)
+                return 1;
+            break;
         case 'M': max_clients = atoi(optarg); break;
         case 'R': no_reconnect = 1; break;
         case 'K': kill_switch = 1; break;
@@ -308,6 +416,13 @@ main(int argc, char *argv[])
     const char *eff_tun_name = tun_name ? tun_name : file_cfg.tun_name;
     const char *eff_log_level = log_level_str ? log_level_str : file_cfg.log_level;
     const char *eff_scheduler = scheduler_str ? scheduler_str : file_cfg.scheduler;
+    const char *eff_cc = cc_str ? cc_str : file_cfg.cc;
+    int eff_mtu = mtu >= 0 ? mtu : file_cfg.mtu;
+    int eff_outer_packet_size =
+        outer_packet_size >= 0 ? outer_packet_size : file_cfg.outer_packet_size;
+    int eff_pmtud_enable = pmtud_enable >= 0 ? pmtud_enable : file_cfg.pmtud_enable;
+    int eff_pmtud_probe_size =
+        pmtud_probe_size >= 0 ? pmtud_probe_size : file_cfg.pmtud_probe_size;
     const char *eff_listen = listen_str ? listen_str : file_cfg.listen;
     const char *eff_subnet = subnet ? subnet : file_cfg.subnet;
     const char *eff_subnet6 =
@@ -376,22 +491,11 @@ main(int argc, char *argv[])
         log_level = MQVPN_LOG_ERROR;
     mqvpn_log_set_level(log_level);
 
-    /* Parse scheduler */
-    int scheduler = MQVPN_SCHED_MINRTT;
-    if (strcmp(eff_scheduler, "wlb") == 0) {
-        scheduler = MQVPN_SCHED_WLB;
-    } else if (strcmp(eff_scheduler, "backup_fec") == 0) {
-#if defined(XQC_ENABLE_FEC) && defined(XQC_ENABLE_XOR)
-        scheduler = MQVPN_SCHED_BACKUP_FEC;
-#else
-        fprintf(stderr, "error: --scheduler 'backup_fec' requires rebuild with "
-                        "-DXQC_ENABLE_FEC=ON -DXQC_ENABLE_XOR=ON in xquic\n");
-        return 1;
-#endif
-    } else if (strcmp(eff_scheduler, "minrtt") != 0) {
-        fprintf(stderr, "error: --scheduler must be 'minrtt', 'wlb', or 'backup_fec'\n");
-        return 1;
-    }
+    mqvpn_scheduler_t scheduler = MQVPN_SCHED_MINRTT;
+    if (parse_scheduler_name(eff_scheduler, &scheduler) < 0) return 1;
+
+    mqvpn_cc_t cc = MQVPN_CC_BBR2;
+    if (parse_cc_name(eff_cc, &cc) < 0) return 1;
 
     /* Paths: CLI paths override config paths entirely */
     if (n_paths == 0 && file_cfg.n_paths > 0) {
@@ -435,6 +539,11 @@ main(int argc, char *argv[])
             .log_level = log_level,
             .n_paths = n_paths,
             .scheduler = scheduler,
+            .cc = cc,
+            .mtu = eff_mtu,
+            .outer_packet_size = eff_outer_packet_size,
+            .pmtud_enable = eff_pmtud_enable,
+            .pmtud_probe_size = eff_pmtud_probe_size,
             .auth_key = eff_auth_key,
             .n_dns = n_dns,
             .n_client_routes = file_cfg.n_client_routes,
@@ -483,6 +592,11 @@ main(int argc, char *argv[])
             .key_file = eff_key,
             .log_level = log_level,
             .scheduler = scheduler,
+            .cc = cc,
+            .mtu = eff_mtu,
+            .outer_packet_size = eff_outer_packet_size,
+            .pmtud_enable = eff_pmtud_enable,
+            .pmtud_probe_size = eff_pmtud_probe_size,
             .auth_key = eff_auth_key,
             .n_users = eff_n_users,
             .max_clients = eff_max_clients,

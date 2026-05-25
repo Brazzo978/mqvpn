@@ -25,6 +25,7 @@ struct mqvpn_config_s {
     int insecure;
 
     mqvpn_scheduler_t scheduler;
+    mqvpn_cc_t cc;
     mqvpn_log_level_t log_level;
     int multipath;
     int reconnect_enable;
@@ -45,6 +46,11 @@ struct mqvpn_config_s {
     char tls_cert[256];
     char tls_key[256];
     int max_clients;
+
+    int mtu;               /* 0 = auto; otherwise pinned TUN MTU */
+    int outer_packet_size; /* QUIC packet size before IP/UDP headers */
+    int pmtud_enable;      /* 0 = off, 1 = negotiated xquic PMTUD */
+    int pmtud_probe_size;  /* 0 = default probe cap */
 };
 
 /* ─── State transition validation (M0-5) ─── */
@@ -73,7 +79,7 @@ bool mqvpn_check_scheduler_preconditions(mqvpn_scheduler_t scheduler, int n_path
 #  define MQVPN_INTERNAL
 #endif
 
-/* Returns "minrtt" / "wlb" / "backup_fec" / "unknown" — caller-owned static
+/* Returns "minrtt" / "wlb" / "backup" / "backup_fec" / "rap" / "unknown" — caller-owned static
  * string, do not free. Used by control_socket.c for get_build_info JSON. */
 MQVPN_INTERNAL const char *mqvpn_server_scheduler_label(const mqvpn_server_t *s);
 

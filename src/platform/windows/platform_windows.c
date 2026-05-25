@@ -528,9 +528,16 @@ win_platform_run_client(const mqvpn_client_cfg_t *cfg)
     switch (cfg->scheduler) {
     case 1: lib_sched = MQVPN_SCHED_WLB; break;
     case 2: lib_sched = MQVPN_SCHED_BACKUP_FEC; break;
+    case 3: lib_sched = MQVPN_SCHED_BACKUP; break;
+    case 4: lib_sched = MQVPN_SCHED_RAP; break;
     default: lib_sched = MQVPN_SCHED_MINRTT; break;
     }
     mqvpn_config_set_scheduler(lib_cfg, lib_sched);
+    mqvpn_config_set_cc(lib_cfg, (mqvpn_cc_t)cfg->cc);
+    mqvpn_config_set_mtu(lib_cfg, cfg->mtu);
+    mqvpn_config_set_outer_packet_size(lib_cfg, cfg->outer_packet_size);
+    mqvpn_config_set_pmtud(lib_cfg, cfg->pmtud_enable);
+    mqvpn_config_set_pmtud_probe_size(lib_cfg, cfg->pmtud_probe_size);
 
     /* Create callbacks */
     mqvpn_client_callbacks_t cbs = MQVPN_CLIENT_CALLBACKS_INIT;

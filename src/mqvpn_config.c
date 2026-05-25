@@ -131,12 +131,17 @@ mqvpn_config_new(void)
     /* Defaults */
     cfg->server_port = 443;
     cfg->scheduler = MQVPN_SCHED_WLB;
+    cfg->cc = MQVPN_CC_BBR2;
     cfg->log_level = MQVPN_LOG_INFO;
     cfg->multipath = 1;
     cfg->reconnect_enable = 1;
     cfg->reconnect_interval_sec = 5;
     cfg->max_clients = 64;
     cfg->listen_port = 443;
+    cfg->mtu = MQVPN_TUN_MTU_AUTO;
+    cfg->outer_packet_size = MQVPN_OUTER_PACKET_SIZE_DEFAULT;
+    cfg->pmtud_enable = 0;
+    cfg->pmtud_probe_size = MQVPN_PMTUD_PROBE_SIZE_DEFAULT;
 
     return cfg;
 }
@@ -319,6 +324,59 @@ mqvpn_config_load_json(mqvpn_config_t *cfg, const char *json_text)
         cfg->killswitch_hint = iv;
     }
 
+    v = json_find_key(json_text, "scheduler");
+    if (v && json_read_string(v, tmp, sizeof(tmp)) == MQVPN_OK) {
+        if (strcmp(tmp, "minrtt") == 0)
+            cfg->scheduler = MQVPN_SCHED_MINRTT;
+        else if (strcmp(tmp, "backup") == 0)
+            cfg->scheduler = MQVPN_SCHED_BACKUP;
+        else if (strcmp(tmp, "backup_fec") == 0)
+            cfg->scheduler = MQVPN_SCHED_BACKUP_FEC;
+        else if (strcmp(tmp, "rap") == 0)
+            cfg->scheduler = MQVPN_SCHED_RAP;
+        else
+            cfg->scheduler = MQVPN_SCHED_WLB;
+    }
+
+    v = json_find_key(json_text, "cc");
+    if (v && json_read_string(v, tmp, sizeof(tmp)) == MQVPN_OK) {
+        if (strcmp(tmp, "bbr") == 0)
+            cfg->cc = MQVPN_CC_BBR;
+        else if (strcmp(tmp, "cubic") == 0)
+            cfg->cc = MQVPN_CC_CUBIC;
+        else if (strcmp(tmp, "new_reno") == 0 || strcmp(tmp, "reno") == 0)
+            cfg->cc = MQVPN_CC_NEW_RENO;
+        else if (strcmp(tmp, "copa") == 0)
+            cfg->cc = MQVPN_CC_COPA;
+        else if (strcmp(tmp, "unlimited") == 0)
+            cfg->cc = MQVPN_CC_UNLIMITED;
+        else
+            cfg->cc = MQVPN_CC_BBR2;
+    }
+
+    v = json_find_key(json_text, "mtu");
+    if (v && json_read_int(v, &iv) == MQVPN_OK &&
+        (iv == 0 || (iv >= MQVPN_TUN_MTU_MIN && iv <= MQVPN_TUN_MTU_MAX))) {
+        cfg->mtu = iv;
+    }
+
+    v = json_find_key(json_text, "outer_packet_size");
+    if (v && json_read_int(v, &iv) == MQVPN_OK &&
+        (iv == 0 || (iv >= MQVPN_OUTER_PACKET_SIZE_MIN &&
+                     iv <= MQVPN_OUTER_PACKET_SIZE_MAX))) {
+        cfg->outer_packet_size = iv ? iv : MQVPN_OUTER_PACKET_SIZE_DEFAULT;
+    }
+
+    v = json_find_key(json_text, "pmtud");
+    if (v && json_read_bool(v, &iv) == MQVPN_OK) cfg->pmtud_enable = iv ? 1 : 0;
+
+    v = json_find_key(json_text, "pmtud_probe_size");
+    if (v && json_read_int(v, &iv) == MQVPN_OK &&
+        (iv == 0 || (iv >= MQVPN_OUTER_PACKET_SIZE_MIN &&
+                     iv <= MQVPN_OUTER_PACKET_SIZE_MAX))) {
+        cfg->pmtud_probe_size = iv ? iv : MQVPN_PMTUD_PROBE_SIZE_DEFAULT;
+    }
+
     /* "paths" sets the multipath flag; individual interface names are not stored
      * in the opaque config — callers must configure interface binding separately
      * via the platform layer. */
@@ -348,6 +406,59 @@ mqvpn_config_set_scheduler(mqvpn_config_t *cfg, mqvpn_scheduler_t sched)
 {
     if (!cfg) return MQVPN_ERR_INVALID_ARG;
     cfg->scheduler = sched;
+    return MQVPN_OK;
+}
+
+int
+mqvpn_config_set_cc(mqvpn_config_t *cfg, mqvpn_cc_t cc)
+{
+    if (!cfg) return MQVPN_ERR_INVALID_ARG;
+    if ((int)cc < 0 || cc > MQVPN_CC_UNLIMITED) return MQVPN_ERR_INVALID_ARG;
+    cfg->cc = cc;
+    return MQVPN_OK;
+}
+
+int
+mqvpn_config_set_mtu(mqvpn_config_t *cfg, int mtu)
+{
+    if (!cfg) return MQVPN_ERR_INVALID_ARG;
+    if (mtu != MQVPN_TUN_MTU_AUTO &&
+        (mtu < MQVPN_TUN_MTU_MIN || mtu > MQVPN_TUN_MTU_MAX)) {
+        return MQVPN_ERR_INVALID_ARG;
+    }
+    cfg->mtu = mtu;
+    return MQVPN_OK;
+}
+
+int
+mqvpn_config_set_outer_packet_size(mqvpn_config_t *cfg, int size)
+{
+    if (!cfg) return MQVPN_ERR_INVALID_ARG;
+    if (size != 0 &&
+        (size < MQVPN_OUTER_PACKET_SIZE_MIN || size > MQVPN_OUTER_PACKET_SIZE_MAX)) {
+        return MQVPN_ERR_INVALID_ARG;
+    }
+    cfg->outer_packet_size = size ? size : MQVPN_OUTER_PACKET_SIZE_DEFAULT;
+    return MQVPN_OK;
+}
+
+int
+mqvpn_config_set_pmtud(mqvpn_config_t *cfg, int enable)
+{
+    if (!cfg) return MQVPN_ERR_INVALID_ARG;
+    cfg->pmtud_enable = enable ? 1 : 0;
+    return MQVPN_OK;
+}
+
+int
+mqvpn_config_set_pmtud_probe_size(mqvpn_config_t *cfg, int size)
+{
+    if (!cfg) return MQVPN_ERR_INVALID_ARG;
+    if (size != 0 &&
+        (size < MQVPN_OUTER_PACKET_SIZE_MIN || size > MQVPN_OUTER_PACKET_SIZE_MAX)) {
+        return MQVPN_ERR_INVALID_ARG;
+    }
+    cfg->pmtud_probe_size = size ? size : MQVPN_PMTUD_PROBE_SIZE_DEFAULT;
     return MQVPN_OK;
 }
 

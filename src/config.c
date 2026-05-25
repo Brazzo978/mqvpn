@@ -270,6 +270,9 @@ handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *va
         } else if (strcasecmp(key, "ReconnectInterval") == 0) {
             int v = atoi(val);
             if (v > 0) cfg->reconnect_interval = v;
+        } else if (strcasecmp(key, "MTU") == 0 || strcasecmp(key, "TunnelMTU") == 0) {
+            int v = atoi(val);
+            if (v == 0 || (v >= 1280 && v <= 1402)) cfg->mtu = v;
         } else {
             LOG_WRN("%s:%d: unknown key '%s' in [Interface]", path, lineno, key);
         }
@@ -315,6 +318,20 @@ handle_kv(mqvpn_file_config_t *cfg, int section, const char *key, const char *va
     case SEC_MULTIPATH:
         if (strcasecmp(key, "Scheduler") == 0) {
             snprintf(cfg->scheduler, sizeof(cfg->scheduler), "%s", val);
+        } else if (strcasecmp(key, "CC") == 0 ||
+                   strcasecmp(key, "CongestionControl") == 0) {
+            snprintf(cfg->cc, sizeof(cfg->cc), "%s", val);
+        } else if (strcasecmp(key, "OuterPacketSize") == 0 ||
+                   strcasecmp(key, "PacketSize") == 0) {
+            int v = atoi(val);
+            if (v == 0 || (v >= 1298 && v <= 1420)) cfg->outer_packet_size = v;
+        } else if (strcasecmp(key, "PMTUD") == 0 ||
+                   strcasecmp(key, "Pmtud") == 0) {
+            cfg->pmtud_enable = parse_bool(val);
+        } else if (strcasecmp(key, "PMTUDProbeSize") == 0 ||
+                   strcasecmp(key, "PmtudProbeSize") == 0) {
+            int v = atoi(val);
+            if (v == 0 || (v >= 1298 && v <= 1420)) cfg->pmtud_probe_size = v;
         } else if (strcasecmp(key, "Path") == 0) {
             if (cfg->n_paths < MQVPN_CONFIG_MAX_PATHS) {
                 snprintf(cfg->paths[cfg->n_paths], sizeof(cfg->paths[0]), "%s", val);
@@ -423,6 +440,25 @@ mqvpn_config_load_json_filecfg(mqvpn_file_config_t *cfg, const char *json_text)
     v = json_find_key(json_text, "scheduler");
     if (v && json_read_string(v, s32, sizeof(s32)) == 0)
         mqvpn_copy_str(cfg->scheduler, sizeof(cfg->scheduler), s32);
+
+    v = json_find_key(json_text, "cc");
+    if (v && json_read_string(v, s32, sizeof(s32)) == 0)
+        mqvpn_copy_str(cfg->cc, sizeof(cfg->cc), s32);
+
+    v = json_find_key(json_text, "mtu");
+    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1280 && iv <= 1402)))
+        cfg->mtu = iv;
+
+    v = json_find_key(json_text, "outer_packet_size");
+    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1298 && iv <= 1420)))
+        cfg->outer_packet_size = iv;
+
+    v = json_find_key(json_text, "pmtud");
+    if (v && json_read_bool(v, &iv) == 0) cfg->pmtud_enable = iv;
+
+    v = json_find_key(json_text, "pmtud_probe_size");
+    if (v && json_read_int(v, &iv) == 0 && (iv == 0 || (iv >= 1298 && iv <= 1420)))
+        cfg->pmtud_probe_size = iv;
 
     v = json_find_key(json_text, "reconnect");
     if (v && json_read_bool(v, &iv) == 0) cfg->reconnect = iv;
@@ -557,6 +593,9 @@ mqvpn_config_defaults(mqvpn_file_config_t *cfg)
     snprintf(cfg->cert_file, sizeof(cfg->cert_file), "server.crt");
     snprintf(cfg->key_file, sizeof(cfg->key_file), "server.key");
     snprintf(cfg->scheduler, sizeof(cfg->scheduler), "wlb");
+    snprintf(cfg->cc, sizeof(cfg->cc), "bbr2");
+    cfg->outer_packet_size = 1320;
+    cfg->pmtud_probe_size = 1380;
     cfg->max_clients = 64;
     cfg->reconnect = 1;
     cfg->reconnect_interval = 5;

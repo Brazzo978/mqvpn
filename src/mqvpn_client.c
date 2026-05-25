@@ -1141,14 +1141,9 @@ cb_request_read(xqc_h3_request_t *h3_request, xqc_request_notify_flag_t flag,
         /* Notify platform on ADDRESS_ASSIGN */
         if (conn->addr_assigned && c->state != MQVPN_STATE_ESTABLISHED &&
             c->state != MQVPN_STATE_TUNNEL_READY) {
-            /* Compute MTU */
-            int tun_mtu = IPV6_MIN_MTU;
-            if (conn->dgram_mss > 0) {
-                size_t udp_mss =
-                    xqc_h3_ext_masque_udp_mss(conn->dgram_mss, conn->masque_stream_id);
-                if (udp_mss >= 68) tun_mtu = (int)udp_mss;
-            }
-            if (conn->addr6_assigned && tun_mtu < IPV6_MIN_MTU) tun_mtu = IPV6_MIN_MTU;
+            int tun_mtu = mqvpn_effective_tun_mtu(&c->config, conn->dgram_mss,
+                                                  conn->masque_stream_id,
+                                                  conn->addr6_assigned);
             c->mtu = tun_mtu;
 
             /* Build tunnel info for callback */
@@ -1319,11 +1314,11 @@ cb_dgram_mss_updated(xqc_h3_conn_t *h, size_t mss, void *ud)
     mqvpn_client_t *c = conn->client;
     LOG_I(c, "datagram MSS updated: %zu", mss);
 
-    if (conn && c->tun_active) {
+    if (conn && c->tun_active && c->config.mtu <= 0) {
         size_t udp_mss = xqc_h3_ext_masque_udp_mss(mss, conn->masque_stream_id);
-        if (udp_mss >= 68) {
-            int new_mtu = (int)udp_mss;
-            if (conn->addr6_assigned && new_mtu < IPV6_MIN_MTU) new_mtu = IPV6_MIN_MTU;
+        if (udp_mss >= MQVPN_TUN_MTU_MIN) {
+            int new_mtu = mqvpn_effective_tun_mtu(&c->config, mss, conn->masque_stream_id,
+                                                  conn->addr6_assigned);
             if (new_mtu != c->last_notified_mtu) {
                 c->mtu = new_mtu;
                 c->last_notified_mtu = new_mtu;
@@ -1342,7 +1337,10 @@ cb_dgram_mss_updated(xqc_h3_conn_t *h, size_t mss, void *ud)
 static activate_result_t
 activate_via_xquic_classify(mqvpn_client_t *c, uint64_t *out_path_id)
 {
-    int path_status = (c->config.scheduler == MQVPN_SCHED_BACKUP_FEC) ? 1 : 0;
+    int path_status = (c->config.scheduler == MQVPN_SCHED_BACKUP ||
+                       c->config.scheduler == MQVPN_SCHED_BACKUP_FEC)
+                          ? 1
+                          : 0;
     *out_path_id = 0;
     xqc_int_t ret =
         xqc_conn_create_path(c->engine, &c->conn->cid, out_path_id, path_status);
@@ -1354,10 +1352,10 @@ activate_via_xquic_classify(mqvpn_client_t *c, uint64_t *out_path_id)
 /* Create an xquic path for a secondary path entry. Thin caller — all state
  * mutation happens inside path_on_event(ACTIVATE_REQUESTED) per spec §6.6.
  *
- * For MQVPN_SCHED_BACKUP_FEC the secondary path is created in STANDBY
- * (path_status=1) so that xquic's backup_fec scheduler routes only FEC repair
- * symbols to it, while the primary path stays AVAILABLE. Per xquic's public
- * API: 1 = STANDBY, anything else = AVAILABLE (xquic.h L2210). */
+ * For backup-style schedulers the secondary path is created in STANDBY
+ * (path_status=1). The primary path stays AVAILABLE; xquic decides when to
+ * use standby traffic or FEC repair. Per xquic's public API: 1 = STANDBY,
+ * anything else = AVAILABLE (xquic.h L2210). */
 static void
 client_activate_path(mqvpn_client_t *c, path_entry_t *p, int idx)
 {
@@ -1583,7 +1581,9 @@ cli_conn_destroy(mqvpn_client_t *c)
 bool
 mqvpn_check_scheduler_preconditions(mqvpn_scheduler_t scheduler, int n_paths)
 {
-    return scheduler == MQVPN_SCHED_BACKUP_FEC && n_paths < 2;
+    return (scheduler == MQVPN_SCHED_BACKUP ||
+            scheduler == MQVPN_SCHED_BACKUP_FEC) &&
+           n_paths < 2;
 }
 
 /* ─── Scheduler dispatch helper (shared with mqvpn_server.c) ─── */
@@ -1593,6 +1593,8 @@ mqvpn_apply_scheduler(xqc_conn_settings_t *cs, mqvpn_scheduler_t sched)
 {
     switch (sched) {
     case MQVPN_SCHED_WLB: cs->scheduler_callback = xqc_wlb_scheduler_cb; break;
+    case MQVPN_SCHED_BACKUP: cs->scheduler_callback = xqc_backup_scheduler_cb; break;
+    case MQVPN_SCHED_RAP: cs->scheduler_callback = xqc_rap_scheduler_cb; break;
     case MQVPN_SCHED_BACKUP_FEC:
 #if defined(XQC_ENABLE_FEC) && defined(XQC_ENABLE_XOR)
         cs->scheduler_callback = xqc_backup_fec_scheduler_cb;
@@ -1619,6 +1621,92 @@ mqvpn_apply_scheduler(xqc_conn_settings_t *cs, mqvpn_scheduler_t sched)
     }
 }
 
+static void
+mqvpn_set_default_cc(xqc_conn_settings_t *cs)
+{
+#ifdef XQC_ENABLE_BBR2
+    cs->cong_ctrl_callback = xqc_bbr2_cb;
+    cs->cc_params.cc_optimization_flags =
+        XQC_BBR2_FLAG_RTTVAR_COMPENSATION | XQC_BBR2_FLAG_FAST_CONVERGENCE;
+#else
+    cs->cong_ctrl_callback = xqc_cubic_cb;
+#endif
+}
+
+void
+mqvpn_apply_cc(xqc_conn_settings_t *cs, mqvpn_cc_t cc)
+{
+    switch (cc) {
+    case MQVPN_CC_BBR: cs->cong_ctrl_callback = xqc_bbr_cb; break;
+    case MQVPN_CC_CUBIC: cs->cong_ctrl_callback = xqc_cubic_cb; break;
+    case MQVPN_CC_NEW_RENO:
+#ifdef XQC_ENABLE_RENO
+        cs->cong_ctrl_callback = xqc_reno_cb;
+#else
+        mqvpn_set_default_cc(cs);
+#endif
+        break;
+    case MQVPN_CC_COPA:
+#ifdef XQC_ENABLE_COPA
+        cs->cong_ctrl_callback = xqc_copa_cb;
+#else
+        mqvpn_set_default_cc(cs);
+#endif
+        break;
+    case MQVPN_CC_UNLIMITED:
+#ifdef XQC_ENABLE_UNLIMITED
+        cs->cong_ctrl_callback = xqc_unlimited_cc_cb;
+#else
+        mqvpn_set_default_cc(cs);
+#endif
+        break;
+    case MQVPN_CC_BBR2:
+    default: mqvpn_set_default_cc(cs); break;
+    }
+}
+
+static int
+clamp_packet_size(int size)
+{
+    if (size <= 0) return MQVPN_OUTER_PACKET_SIZE_DEFAULT;
+    if (size < MQVPN_OUTER_PACKET_SIZE_MIN) return MQVPN_OUTER_PACKET_SIZE_MIN;
+    if (size > MQVPN_OUTER_PACKET_SIZE_MAX) return MQVPN_OUTER_PACKET_SIZE_MAX;
+    return size;
+}
+
+void
+mqvpn_apply_transport_tuning(xqc_conn_settings_t *cs, const mqvpn_config_t *cfg)
+{
+    int base = cfg ? cfg->outer_packet_size : 0;
+    int probe = cfg ? cfg->pmtud_probe_size : 0;
+
+    base = clamp_packet_size(base);
+    cs->max_pkt_out_size = (size_t)base;
+
+    if (cfg && cfg->pmtud_enable) {
+        probe = probe > 0 ? clamp_packet_size(probe) : MQVPN_PMTUD_PROBE_SIZE_DEFAULT;
+        if (probe < base) probe = base;
+        cs->enable_pmtud = 0x3;
+        cs->probing_pkt_out_size = (size_t)probe;
+        cs->pmtud_probing_interval = 500000;
+    }
+}
+
+int
+mqvpn_effective_tun_mtu(const mqvpn_config_t *cfg, size_t dgram_mss,
+                        uint64_t masque_stream_id, int has_v6)
+{
+    if (cfg && cfg->mtu > 0) return cfg->mtu;
+
+    int tun_mtu = MQVPN_TUN_MTU_MIN;
+    if (dgram_mss > 0) {
+        size_t udp_mss = xqc_h3_ext_masque_udp_mss(dgram_mss, masque_stream_id);
+        if (udp_mss >= MQVPN_TUN_MTU_MIN) tun_mtu = (int)udp_mss;
+    }
+    if (has_v6 && tun_mtu < MQVPN_TUN_MTU_MIN) tun_mtu = MQVPN_TUN_MTU_MIN;
+    return tun_mtu;
+}
+
 /* ─── Start a QUIC/H3 connection ─── */
 
 static int
@@ -1639,10 +1727,8 @@ cli_start_connection(mqvpn_client_t *c)
     cs.ping_on = 1;
     cs.mp_ping_on = multipath;
     cs.pacing_on = 1;
-    cs.max_pkt_out_size = 1400;
-    cs.cong_ctrl_callback = xqc_bbr2_cb;
-    cs.cc_params.cc_optimization_flags =
-        XQC_BBR2_FLAG_RTTVAR_COMPENSATION | XQC_BBR2_FLAG_FAST_CONVERGENCE;
+    mqvpn_apply_transport_tuning(&cs, &c->config);
+    mqvpn_apply_cc(&cs, c->config.cc);
     cs.sndq_packets_used_max = XQC_SNDQ_MAX_PKTS;
     cs.so_sndbuf = 8 * 1024 * 1024;
     cs.idle_time_out = 120000;
@@ -1844,11 +1930,11 @@ mqvpn_client_connect(mqvpn_client_t *c)
      * This is a snapshot at connect time — adding a second path later via
      * mqvpn_client_add_path_fd() resolves the underlying issue but does
      * not retract the warning. Acceptable tradeoff: the warning is
-     * informational only and the typical backup_fec deployment configures
+     * informational only and the typical backup/backup_fec deployment configures
      * both paths before connect(). */
     if (mqvpn_check_scheduler_preconditions(c->config.scheduler, c->n_paths)) {
         LOG_W(c,
-              "backup_fec scheduler is most effective with >=2 paths; "
+              "backup-style scheduler is most effective with >=2 paths; "
               "currently %d path(s) configured",
               c->n_paths);
     }
@@ -2367,12 +2453,13 @@ tick_check_all_validations(mqvpn_client_t *c, uint64_t now)
          * still validating below that. */
 
         /* Branch on connection-scoped scheduler config — secondary paths
-         * created under backup_fec are STANDBY (spec §10.1.1). Scheduler
+         * created under backup/backup_fec are STANDBY (spec §10.1.1). Scheduler
          * is immutable per-connection so the result is stable for the
          * lifetime of this path. Dispatched via VALIDATION_OK; the
          * handler sets path_stable_since_us = now and transitions to
          * the carried target. */
-        path_lifecycle_t target = (c->config.scheduler == MQVPN_SCHED_BACKUP_FEC)
+        path_lifecycle_t target = (c->config.scheduler == MQVPN_SCHED_BACKUP ||
+                                   c->config.scheduler == MQVPN_SCHED_BACKUP_FEC)
                                       ? PATH_LC_STANDBY
                                       : PATH_LC_ACTIVE;
         path_event_ctx_t v_ctx = {.validated_target = target, .now_us = now};

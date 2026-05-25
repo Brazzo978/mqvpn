@@ -1,19 +1,14 @@
 /*
  * flow_sched.h
  *
- * Scheduler mode constants and IPv4/IPv6 5-tuple flow hash utility.
- * Path selection is handled inside xquic scheduler callbacks
- * (minrtt/wlb).
+ * IPv4/IPv6 5-tuple flow hash utility. Path selection is handled inside
+ * xquic scheduler callbacks.
  */
 #ifndef MQVPN_FLOW_SCHED_H
 #define MQVPN_FLOW_SCHED_H
 
+#include "libmqvpn.h"
 #include <stdint.h>
-
-/* Scheduler mode (mirrors mqvpn_scheduler_t in include/libmqvpn.h) */
-#define MQVPN_SCHED_MINRTT     0
-#define MQVPN_SCHED_WLB        1 /* WLB with flow-affinity WRR (default) */
-#define MQVPN_SCHED_BACKUP_FEC 2 /* FEC repair on standby path (experimental) */
 
 /* Sentinel: WRR without flow pinning (for UDP/QUIC — no reordering concern) */
 #define MQVPN_FLOW_HASH_UNPINNED 0xFFFFFFFFU

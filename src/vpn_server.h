@@ -21,6 +21,11 @@ typedef struct mqvpn_server_cfg_s {
     const char *key_file;    /* TLS private key path */
     int log_level;           /* mqvpn_log_level_t */
     int scheduler;           /* 0=minrtt, 1=wlb (default) */
+    int cc;                  /* mqvpn_cc_t */
+    int mtu;                 /* 0=auto; otherwise pinned TUN MTU */
+    int outer_packet_size;   /* QUIC packet size, 0/default=1320 */
+    int pmtud_enable;        /* 1=enable negotiated xquic PMTUD */
+    int pmtud_probe_size;    /* PMTUD probe cap, 0/default=1380 */
     const char *auth_key;    /* PSK for client authentication (NULL = no auth) */
     const char *user_names[64];
     const char *user_keys[64];

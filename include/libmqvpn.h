@@ -93,10 +93,21 @@ typedef enum {
 } mqvpn_mode_t;
 
 typedef enum {
+    MQVPN_CC_BBR2 = 0, /* default */
+    MQVPN_CC_BBR = 1,
+    MQVPN_CC_CUBIC = 2,
+    MQVPN_CC_NEW_RENO = 3,
+    MQVPN_CC_COPA = 4,
+    MQVPN_CC_UNLIMITED = 5,
+} mqvpn_cc_t;
+
+typedef enum {
     MQVPN_SCHED_MINRTT = 0,
     MQVPN_SCHED_WLB = 1,
     MQVPN_SCHED_BACKUP_FEC =
         2, /* FEC repair on standby path. Requires XQC_ENABLE_FEC build. */
+    MQVPN_SCHED_BACKUP = 3,
+    MQVPN_SCHED_RAP = 4,
 } mqvpn_scheduler_t;
 
 typedef enum {
@@ -400,11 +411,30 @@ MQVPN_API int mqvpn_config_remove_user(mqvpn_config_t *cfg, const char *username
 MQVPN_API int mqvpn_config_load_json(mqvpn_config_t *cfg, const char *json_text);
 MQVPN_API int mqvpn_config_set_insecure(mqvpn_config_t *cfg, int insecure);
 MQVPN_API int mqvpn_config_set_scheduler(mqvpn_config_t *cfg, mqvpn_scheduler_t sched);
+MQVPN_API int mqvpn_config_set_cc(mqvpn_config_t *cfg, mqvpn_cc_t cc);
 MQVPN_API int mqvpn_config_set_log_level(mqvpn_config_t *cfg, mqvpn_log_level_t level);
 MQVPN_API int mqvpn_config_set_multipath(mqvpn_config_t *cfg, int enable);
 MQVPN_API int mqvpn_config_set_reconnect(mqvpn_config_t *cfg, int enable,
                                          int interval_sec);
 MQVPN_API int mqvpn_config_set_killswitch_hint(mqvpn_config_t *cfg, int enable);
+
+/* MTU/packet sizing.
+ * TUN MTU: 0 = auto, otherwise pinned. The default outer packet size is 1320:
+ * enough to carry a 1280-byte inner tunnel after QUIC/MASQUE overhead while
+ * staying conservative on mobile links.
+ */
+#define MQVPN_TUN_MTU_AUTO 0
+#define MQVPN_TUN_MTU_MIN 1280
+#define MQVPN_TUN_MTU_MAX 1402
+#define MQVPN_OUTER_PACKET_SIZE_DEFAULT 1320
+#define MQVPN_OUTER_PACKET_SIZE_MIN 1298
+#define MQVPN_OUTER_PACKET_SIZE_MAX 1420
+#define MQVPN_PMTUD_PROBE_SIZE_DEFAULT 1380
+
+MQVPN_API int mqvpn_config_set_mtu(mqvpn_config_t *cfg, int mtu);
+MQVPN_API int mqvpn_config_set_outer_packet_size(mqvpn_config_t *cfg, int size);
+MQVPN_API int mqvpn_config_set_pmtud(mqvpn_config_t *cfg, int enable);
+MQVPN_API int mqvpn_config_set_pmtud_probe_size(mqvpn_config_t *cfg, int size);
 
 /* Clock injection (Android: CLOCK_BOOTTIME, testing: mock clock) */
 typedef uint64_t (*mqvpn_clock_fn)(void *ctx);

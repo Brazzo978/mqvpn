@@ -36,6 +36,10 @@
 /* Apply scheduler-specific xquic conn settings (callback + FEC params).
  * Used by both client (mqvpn_client.c) and server (mqvpn_server.c). */
 void mqvpn_apply_scheduler(xqc_conn_settings_t *cs, mqvpn_scheduler_t sched);
+void mqvpn_apply_cc(xqc_conn_settings_t *cs, mqvpn_cc_t cc);
+void mqvpn_apply_transport_tuning(xqc_conn_settings_t *cs, const mqvpn_config_t *cfg);
+int mqvpn_effective_tun_mtu(const mqvpn_config_t *cfg, size_t dgram_mss,
+                            uint64_t masque_stream_id, int has_v6);
 
 /* Map scheduler choice → DATAGRAM send-time QoS level.
  *

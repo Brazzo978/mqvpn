@@ -14,6 +14,11 @@ typedef struct mqvpn_client_cfg_s {
     const char *path_ifaces[MQVPN_MAX_PATH_IFACES]; /* network interfaces for multipath */
     int n_paths;                /* number of path interfaces (0 = single-path) */
     int scheduler;              /* 0=minrtt, 1=wlb (default) */
+    int cc;                     /* mqvpn_cc_t */
+    int mtu;                    /* 0=auto; otherwise pinned TUN MTU */
+    int outer_packet_size;      /* QUIC packet size, 0/default=1320 */
+    int pmtud_enable;           /* 1=enable negotiated xquic PMTUD */
+    int pmtud_probe_size;       /* PMTUD probe cap, 0/default=1380 */
     const char *auth_key;       /* PSK for server authentication (NULL = no auth) */
     const char *dns_servers[4]; /* DNS servers to configure (NULL = no DNS override) */
     int n_dns;                  /* number of DNS servers */

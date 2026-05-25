@@ -166,7 +166,9 @@ mqvpn_scheduler_label(int s)
     switch (s) {
     case MQVPN_SCHED_MINRTT: return "minrtt";
     case MQVPN_SCHED_WLB: return "wlb";
+    case MQVPN_SCHED_BACKUP: return "backup";
     case MQVPN_SCHED_BACKUP_FEC: return "backup_fec";
+    case MQVPN_SCHED_RAP: return "rap";
     default: return "unknown";
     }
 }
@@ -764,7 +766,8 @@ svr_masque_send_response(xqc_h3_request_t *h3_request, svr_stream_t *stream)
         client_info.assigned_prefix = 32;
         memcpy(client_info.server_ip, &s->pool.base.s_addr, 4);
         client_info.server_prefix = (uint8_t)s->pool.prefix_len;
-        client_info.mtu = 1280;
+        client_info.mtu = mqvpn_effective_tun_mtu(&s->config, conn->dgram_mss,
+                                                  conn->masque_stream_id, conn->has_v6);
         if (conn->has_v6) {
             memcpy(client_info.assigned_ip6, &conn->assigned_ip6, 16);
             client_info.assigned_prefix6 = (uint8_t)s->pool.prefix6;
@@ -1266,10 +1269,8 @@ mqvpn_server_new(const mqvpn_config_t *cfg, const mqvpn_server_callbacks_t *cbs,
     conn_settings.enable_multipath = 1;
     conn_settings.mp_ping_on = 1;
     conn_settings.pacing_on = 1;
-    conn_settings.max_pkt_out_size = 1400;
-    conn_settings.cong_ctrl_callback = xqc_bbr2_cb;
-    conn_settings.cc_params.cc_optimization_flags =
-        XQC_BBR2_FLAG_RTTVAR_COMPENSATION | XQC_BBR2_FLAG_FAST_CONVERGENCE;
+    mqvpn_apply_transport_tuning(&conn_settings, &s->config);
+    mqvpn_apply_cc(&conn_settings, s->config.cc);
 #if !defined(XQC_ENABLE_FEC) || !defined(XQC_ENABLE_XOR)
     if (cfg->scheduler == MQVPN_SCHED_BACKUP_FEC) {
         LOG_W(s, "backup_fec scheduler requested but library built without FEC "
@@ -1386,7 +1387,7 @@ mqvpn_server_start(mqvpn_server_t *s)
     info.assigned_prefix = (uint8_t)s->pool.prefix_len;
     memcpy(info.server_ip, &s->pool.base.s_addr, 4);
     info.server_prefix = (uint8_t)s->pool.prefix_len;
-    info.mtu = 1280;
+    info.mtu = s->config.mtu > 0 ? s->config.mtu : MQVPN_TUN_MTU_MIN;
 
     if (s->pool.has_v6) {
         struct in6_addr srv_addr6;

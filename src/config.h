@@ -56,7 +56,12 @@ typedef struct mqvpn_file_config_s {
     /* [Multipath] */
     char paths[MQVPN_CONFIG_MAX_PATHS][32];
     int n_paths;
-    char scheduler[16];
+    char scheduler[24];
+    char cc[16];
+    int mtu;
+    int outer_packet_size;
+    int pmtud_enable;
+    int pmtud_probe_size;
 
     /* [Interface] — client reconnection */
     int reconnect;          /* 1=auto-reconnect (default), 0=exit on disconnect */
