@@ -4,13 +4,14 @@ Run on a **new Debian or Ubuntu VPS** (amd64 or arm64) as root, from a trusted c
 
 ## Quick start: a new test VPS
 
-Connect with SSH to an interactive terminal, then run the following commands.
+Connect with SSH to an interactive terminal as root, then run the following commands.
+If you log in as a regular user, enter a root shell with `sudo -i` first.
 Replace `203.0.113.10` with your VPS public IPv4 address. Allow **UDP 443**
 in the VPS provider firewall and in any host firewall. SSH access must stay allowed.
 
 ```sh
-sudo apt-get update
-sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+apt-get update
+env DEBIAN_FRONTEND=noninteractive apt-get install -y \
   git ca-certificates curl bash python3 openssl qrencode iperf3 \
   iptables iproute2 procps tar coreutils
 
@@ -18,7 +19,7 @@ git clone --depth 1 --branch feat/android-vps-qr-setup \
   https://github.com/Brazzo978/mqvpn.git mqvpn-phone
 cd mqvpn-phone
 
-sudo sh server/provision/setup.sh \
+sh server/provision/setup.sh \
   --name phone1 --server-address 203.0.113.10 --insecure --show-qr
 ```
 
@@ -43,13 +44,13 @@ privately and close the terminal when finished.
 For a CA-trusted certificate already placed at `/etc/mqvpn/server.crt` with its private key at `/etc/mqvpn/server.key`:
 
 ```sh
-sudo sh server/provision/setup.sh --name alice --server-address vpn.example.com --tls-server-name vpn.example.com --show-qr
+sh server/provision/setup.sh --name alice --server-address vpn.example.com --tls-server-name vpn.example.com --show-qr
 ```
 
 The bootstrap verifies that certificate's hostname and trust chain before creating a profile. The installer generates a self-signed certificate when no certificate exists. For a **test VPS only**, explicitly permit that certificate in the phone profile:
 
 ```sh
-sudo sh server/provision/setup.sh --name alice --server-address 203.0.113.10 --insecure --show-qr
+sh server/provision/setup.sh --name alice --server-address 203.0.113.10 --insecure --show-qr
 ```
 
 Scan the QR privately in the Android app's profile importer. The QR carries Alice's personal PSK and must be treated like a password. `--show-qr` requires an interactive terminal; no QR or profile secret is printed by default. The provisioner saves each profile as a root-only JSON file in `/etc/mqvpn/profiles` (directory 0700, files 0600). Do not send those files to other users or include them in a shared backup.
@@ -59,19 +60,19 @@ Scan the QR privately in the Android app's profile importer. The QR carries Alic
 From the checkout directory, add a separate credential for each phone or user (up to 64 configured users). For additional users or routine administration on the VPS:
 
 ```sh
-sudo python3 server/provision/mqvpn_provision.py add bob --show-qr
-sudo python3 server/provision/mqvpn_provision.py list
-sudo python3 server/provision/mqvpn_provision.py export bob --show-qr
-sudo python3 server/provision/mqvpn_provision.py revoke alice
+python3 server/provision/mqvpn_provision.py add bob --show-qr
+python3 server/provision/mqvpn_provision.py list
+python3 server/provision/mqvpn_provision.py export bob --show-qr
+python3 server/provision/mqvpn_provision.py revoke alice
 ```
 
-`add` is idempotent for an already managed user; it reuses the same PSK. `revoke` removes that user's server credential and private profile. `export` only shows the QR on a TTY. To reach the script from any directory, install a root-owned copy with `install -m 0755 server/provision/mqvpn_provision.py /usr/local/sbin/mqvpn-provision` and run `sudo mqvpn-provision ...`.
+`add` is idempotent for an already managed user; it reuses the same PSK. `revoke` removes that user's server credential and private profile. `export` only shows the QR on a TTY. To reach the script from any directory, install a root-owned copy with `install -m 0755 server/provision/mqvpn_provision.py /usr/local/sbin/mqvpn-provision` and run `mqvpn-provision ...`.
 
 ## Profile format and administration
 
 The QR uses `mqvpn://profile?data=<base64url UTF-8 JSON>`. It contains version 1, name, endpoint, TLS name, **user** `authKey`, MTU, control and iperf endpoint fields, `insecure`, and `serverControlAllowed:false`. The global `[Auth] Key` stays only in the server config. Personal users cannot change global server settings through the management API.
 
-Adding or revoking a user atomically edits `server.conf`, restarts MQVPN, verifies the native user list, and starts management again. That restart briefly disconnects **all** active users, so schedule changes accordingly. A failed restart restores the previous config; a retained `server.conf.provision-backup` means recovery needs attention. After checking the failure and service status, run `sudo python3 server/provision/mqvpn_provision.py recover`. Do not delete retained backups to force an update.
+Adding or revoking a user atomically edits `server.conf`, restarts MQVPN, verifies the native user list, and starts management again. That restart briefly disconnects **all** active users, so schedule changes accordingly. A failed restart restores the previous config; a retained `server.conf.provision-backup` means recovery needs attention. After checking the failure and service status, run `python3 server/provision/mqvpn_provision.py recover`. Do not delete retained backups to force an update.
 
 ## Verify and troubleshoot
 
@@ -91,10 +92,10 @@ reviewing that deployment's service and network configuration.
 Do not open 9090, 9443 or 5201 on the public firewall. To check health:
 
 ```sh
-sudo systemctl is-active mqvpn-server mqvpn-management mqvpn-iperf
-sudo ss -lntup
-sudo python3 server/provision/mqvpn_provision.py list
-sudo journalctl -u mqvpn-server -u mqvpn-management -u mqvpn-iperf -n 60 --no-pager
+systemctl is-active mqvpn-server mqvpn-management mqvpn-iperf
+ss -lntup
+python3 server/provision/mqvpn_provision.py list
+journalctl -u mqvpn-server -u mqvpn-management -u mqvpn-iperf -n 60 --no-pager
 ```
 
 If `--show-qr` reports that a terminal is required, run the command directly in
