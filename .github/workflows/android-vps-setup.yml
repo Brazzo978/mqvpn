@@ -1,0 +1,29 @@
+name: Android VPS setup checks
+
+on:
+  push:
+    branches: [feat/android-vps-qr-setup]
+    paths: ['server/**', '.github/workflows/android-vps-setup.yml']
+  pull_request:
+    paths: ['server/**', '.github/workflows/android-vps-setup.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check shell syntax
+        run: |
+          bash -n server/install-mqvpn-0.17.0-poc.sh
+          sh -n server/provision/setup.sh
+          sh -n server/management/install.sh
+          sh -n server/iperf/install.sh
+      - name: Check provisioning and management
+        run: |
+          python3 -m unittest discover -s server/provision -p 'test_*.py' -v
+          python3 -m unittest discover -s server/management -p 'test_*.py' -v

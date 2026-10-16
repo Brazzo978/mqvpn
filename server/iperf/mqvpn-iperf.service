@@ -1,0 +1,24 @@
+[Unit]
+Description=iperf3 diagnostics inside the MQVPN tunnel
+After=network-online.target mqvpn-server.service
+Wants=mqvpn-server.service
+PartOf=mqvpn-server.service
+
+[Service]
+Type=simple
+User=nobody
+Group=nogroup
+ExecStart=/usr/bin/iperf3 -s -B 10.88.0.1 -p 5201 --forceflush --idle-timeout 15 --rcv-timeout 15000 --snd-timeout 10000
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

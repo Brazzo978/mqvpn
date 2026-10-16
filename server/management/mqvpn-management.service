@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 mp0rta and mqvpn contributors
+[Unit]
+Description=MQVPN authenticated tunnel management
+After=network-online.target mqvpn-server.service
+Wants=network-online.target mqvpn-server.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/libexec/mqvpn-management.py --bind 10.88.0.1 --port 9443
+Restart=on-failure
+RestartSec=2
+User=root
+Group=root
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ReadWritePaths=/etc/mqvpn /var/lib/mqvpn-management
+StateDirectory=mqvpn-management
+UMask=0077
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

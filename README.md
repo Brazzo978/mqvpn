@@ -18,6 +18,15 @@ This fork is used by the Brazzo978 OpenMPTCProuter 3K custom builds. It tracks u
 - **PSK auth** — Pre-shared key over TLS 1.3.
 - **DNS override** — Prevents DNS leaks. Uses `resolvectl` on systemd-resolved systems, falls back to resolv.conf.
 
+## Android PoC VPS setup with QR profiles
+
+For the custom Android PoC app, use the [VPS setup guide](server/provision/README.md)
+and [setup script](server/provision/setup.sh). They install MQVPN **v0.17.0**,
+a tunnel-only management API and iperf3, then create private per-user QR profiles
+with **MTU 1280**. The guide includes Debian/Ubuntu prerequisites, firewall ports,
+trusted and self-signed TLS options, adding/revoking users and troubleshooting.
+The generic installer below does not create these Android profiles or companions.
+
 ## Installation
 
 ### Server
