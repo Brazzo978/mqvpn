@@ -43,7 +43,9 @@ class ManagementTests(unittest.TestCase):
         self.fail_next_restart = False
         self.manager = m.Management(self.config, self.state,
                                     runner=self.run_command, control=self.control,
-                                    restart_grace_sec=0)
+                                    restart_grace_sec=0,
+                                    provision_lock=Path(self.temp.name) / "provision.lock")
+        self.addCleanup(self.manager._unlock_provision)
 
     def control(self):
         return {"ok": True, "scheduler": self.active_scheduler, "fec_enabled": 0}
@@ -160,6 +162,8 @@ class ManagementTests(unittest.TestCase):
         self.assertIsNotNone(pending)
         self.assertTrue(self.manager.backup_path.exists())
         self.assertNotEqual(CONFIG, self.config.read_bytes())
+        # A killed process releases its flock; emulate that before recovery.
+        self.manager._unlock_provision()
         recovered = m.Management(self.config, self.state,
                                  runner=self.run_command, control=self.control)
         self.assertEqual(CONFIG, self.config.read_bytes())
